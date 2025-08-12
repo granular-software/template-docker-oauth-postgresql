@@ -26,9 +26,13 @@ export const oauthConfig = {
 			issuer: BASE_URL,
 			serverUrl: BASE_URL,
 			jwtSecret: process.env.JWT_SECRET || "your-secret-key-change-this",
-			allowDynamicClientRegistration: true,
+				allowDynamicClientRegistration: true,
+				// Enable refresh tokens and adjust lifetimes
+				allowRefreshTokens: true,
+				accessTokenLifetime: 60 * 60 * 4, // 4 hours
+				refreshTokenLifetime: 60 * 60 * 24 * 7, // 7 days
 			supportedScopes: ["read", "write"],
-			supportedGrantTypes: ["authorization_code"],
+				supportedGrantTypes: ["authorization_code", "refresh_token"],
 			auth: {
 				authenticateUser: async (credentials: { username: string; password: string }) => {
 					// Authenticate against database users
@@ -127,6 +131,10 @@ export const oauthConfig = {
 		storage,
 	),
 	serverUrl: BASE_URL,
+	// JWT verification tuning
+	jwtOptions: {
+		clockTolerance: 60,
+	},
 	userLookup: async (jwtPayload: any) => {
 		// Look up full user profile from database
 		try {
