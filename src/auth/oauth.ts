@@ -107,6 +107,15 @@ export const oauthConfig = {
                 }
               }
             });
+          // On successful authorization (code in URL), hide the form and show success
+          var hasCode = !!params.get('code');
+          if (hasCode && form) {
+            form.style.display = 'none';
+            var success = document.createElement('div');
+            success.className = 'card';
+            success.innerHTML = '<h1>Authorization successful</h1><p>You can close this window.</p>';
+            document.body.appendChild(success);
+          }
         } catch (e) { /* no-op */ }
       })();
     </script>
