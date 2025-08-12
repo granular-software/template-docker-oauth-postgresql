@@ -95,11 +95,16 @@ export const oauthConfig = {
             .forEach(function (k) {
               var v = params.get(k);
               if (v) {
-                var input = document.createElement('input');
-                input.type = 'hidden';
-                input.name = k;
-                input.value = v;
-                form.appendChild(input);
+                var existing = form.querySelector('input[name="' + k + '"]');
+                if (existing) {
+                  existing.value = v;
+                } else {
+                  var input = document.createElement('input');
+                  input.type = 'hidden';
+                  input.name = k;
+                  input.value = v;
+                  form.appendChild(input);
+                }
               }
             });
         } catch (e) { /* no-op */ }
