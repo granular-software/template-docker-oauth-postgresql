@@ -60,8 +60,8 @@ const tables = [
       CREATE TABLE IF NOT EXISTS sessions (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         user_id UUID NOT NULL,
-        access_token VARCHAR(255) UNIQUE NOT NULL,
-        refresh_token VARCHAR(255) UNIQUE NOT NULL,
+        access_token VARCHAR(2048) UNIQUE NOT NULL,
+        refresh_token VARCHAR(2048) UNIQUE NOT NULL,
         expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -139,7 +139,7 @@ const tables = [
     sql: `
       CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
         refresh_token VARCHAR(2048) PRIMARY KEY,
-        access_token_id VARCHAR(255) NOT NULL,
+        access_token_id VARCHAR(2048) NOT NULL,
         client_id VARCHAR(255) NOT NULL,
         user_id UUID NOT NULL,
         scope TEXT NOT NULL,
@@ -248,6 +248,25 @@ async function createTables() {
           console.log(`     ✅ Ensured users table has OAuth columns`);
         } catch (alterError) {
           console.log(`     ℹ️  Users table columns already up to date`);
+        }
+      }
+
+      // Ensure token columns are wide enough to store signed JWTs and refresh tokens
+      if (table.name === 'sessions') {
+        try {
+          await pool.query("ALTER TABLE sessions ALTER COLUMN access_token TYPE VARCHAR(2048)");
+          await pool.query("ALTER TABLE sessions ALTER COLUMN refresh_token TYPE VARCHAR(2048)");
+          console.log(`     ✅ Ensured sessions token columns are VARCHAR(2048)`);
+        } catch (alterError) {
+          console.log(`     ℹ️  Sessions token columns already sized appropriately`);
+        }
+      }
+      if (table.name === 'oauth_refresh_tokens') {
+        try {
+          await pool.query("ALTER TABLE oauth_refresh_tokens ALTER COLUMN access_token_id TYPE VARCHAR(2048)");
+          console.log(`     ✅ Ensured oauth_refresh_tokens.access_token_id is VARCHAR(2048)`);
+        } catch (alterError) {
+          console.log(`     ℹ️  oauth_refresh_tokens.access_token_id already sized appropriately`);
         }
       }
     } catch (error) {
