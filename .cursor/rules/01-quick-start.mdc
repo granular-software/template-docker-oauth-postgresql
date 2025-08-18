@@ -1,0 +1,87 @@
+# Docker + OAuth + PostgreSQL Template
+
+Production-ready MCP server with OAuth2.1 authentication and PostgreSQL database.
+
+## Quick Start
+
+```bash
+git clone <template-repo>
+cd template-docker-oauth-postgresql
+cp env.example .env
+# Edit .env with your values
+docker-compose up -d
+npm run db:init
+```
+
+## Environment
+```bash
+DATABASE_URL=postgresql://username:password@localhost:5432/mcpresso
+JWT_SECRET=your-secure-secret-key
+SERVER_URL=https://your-server.com
+PORT=3000
+```
+
+## Resource Example
+```typescript
+const noteResource = createResource({
+  name: "note",
+  schema: NoteSchema,
+  uri_template: "notes/{id}",
+  methods: {
+    create: { 
+      handler: async (data, user) => {
+        if (!user) throw new Error("Authentication required");
+        return createNote({ ...data, authorId: user.id });
+      }
+    },
+    list: { 
+      handler: async (_, user) => {
+        if (!user) return getPublicNotes();
+        return getNotesForUser(user.id);
+      }
+    },
+  },
+});
+```
+
+## Handler Pattern
+```typescript
+// OAuth handlers receive full user context
+handler: async (data, user) => {
+  if (!user) throw new Error("Authentication required");
+  
+  // user.id, user.username, user.email, user.scopes available
+  return await processDataForUser(data, user);
+}
+```
+
+## Authentication
+```bash
+# Register
+curl -X POST http://localhost:3000/auth/register \
+  -d '{"username":"user","email":"user@example.com","password":"pass"}'
+
+# Login
+curl -X POST http://localhost:3000/auth/login \
+  -d '{"username":"user","password":"pass"}'
+
+# Use token
+curl -H "Authorization: Bearer YOUR_TOKEN" \
+     http://localhost:3000/api/notes
+```
+
+## Docker
+```bash
+# Start
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop
+docker-compose down
+```
+description:
+globs:
+alwaysApply: false
+---
