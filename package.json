@@ -1,6 +1,6 @@
 {
   "name": "template-docker-oauth-postgresql",
-  "version": "1.1.5",
+  "version": "1.1.6",
   "description": "{{PROJECT_DESCRIPTION}}",
   "main": "dist/server.js",
   "type": "module",
