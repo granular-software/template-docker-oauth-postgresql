@@ -1,0 +1,263 @@
+# Authentication Patterns for MCP Servers
+
+## Authentication Modes
+
+### No Authentication
+For public APIs, development, or open data services:
+
+```typescript
+const server = createMCPServer({
+  name: "public_api",
+  resources: [resource],
+  // No auth field = public access
+});
+
+// Handlers receive no user context
+handler: async (data) => {
+  return await processData(data);
+}
+```
+
+### Bearer Token
+For internal services, API clients, or simple authentication:
+
+```typescript
+const server = createMCPServer({
+  name: "internal_api",
+  resources: [resource],
+  auth: {
+    bearerToken: {
+      token: process.env.API_KEY,
+      userProfile: {
+        id: "api-client",
+        username: "internal-service",
+        scopes: ["read", "write"],
+        metadata: {
+          clientType: "internal",
+          version: "1.0.0",
+        },
+      },
+    },
+  },
+});
+
+// Handlers receive consistent user context
+handler: async (data, user) => {
+  // user.id: "api-client"
+  // user.username: "internal-service"
+  // user.scopes: ["read", "write"]
+  // user.metadata: { clientType: "internal", version: "1.0.0" }
+  
+  return await processDataForService(data, user);
+}
+```
+
+### OAuth 2.1
+For production applications with user accounts:
+
+```typescript
+const server = createMCPServer({
+  name: "production_api",
+  resources: [resource],
+  auth: {
+    issuer: process.env.SERVER_URL,
+    serverUrl: process.env.SERVER_URL,
+    jwtSecret: process.env.JWT_SECRET,
+    userLookup: async (jwtPayload) => {
+      // Look up user in database
+      const user = await db.users.findById(jwtPayload.sub);
+      if (!user) return null;
+      
+      // Return user profile with scopes
+      return {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        scopes: user.permissions || ["read", "write"],
+        metadata: {
+          lastLogin: user.lastLogin,
+          accountType: user.accountType,
+        },
+      };
+    },
+  },
+});
+```
+
+## User Context in Handlers
+
+### OAuth/Bearer Token Handlers
+```typescript
+handler: async (data, user) => {
+  if (!user) throw new Error("Authentication required");
+  
+  // user object contains:
+  // - user.id: Unique user identifier
+  // - user.username: User's username
+  // - user.email: User's email (if available)
+  // - user.scopes: Array of permission scopes
+  // - user.metadata: Additional user information
+  
+  // Check permissions
+  if (!user.scopes.includes("write")) {
+    throw new Error("Insufficient permissions - write access required");
+  }
+  
+  // Use user context for data isolation
+  return await processDataForUser(data, user);
+}
+```
+
+### Permission-Based Access Control
+```typescript
+// Check specific permissions
+const requirePermission = (requiredScope: string) => {
+  return (data: any, user: any) => {
+    if (!user) throw new Error("Authentication required");
+    if (!user.scopes.includes(requiredScope)) {
+      throw new Error(`Insufficient permissions - ${requiredScope} access required`);
+    }
+  };
+};
+
+// Use in handlers
+update: {
+  description: "Update a note (requires write permission)",
+  handler: async (data, user) => {
+    requirePermission("write")(data, user);
+    
+    // User has write permission, proceed with update
+    return await updateNote(data, user.id);
+  },
+}
+```
+
+## Security Patterns
+
+### JWT Token Validation
+```typescript
+// Custom JWT validation
+const validateJWT = (token: string) => {
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    
+    // Additional validation
+    if (decoded.exp && Date.now() >= decoded.exp * 1000) {
+      throw new Error("Token expired");
+    }
+    
+    if (decoded.iss !== process.env.SERVER_URL) {
+      throw new Error("Invalid token issuer");
+    }
+    
+    return decoded;
+  } catch (error) {
+    throw new Error("Invalid token");
+  }
+};
+```
+
+### Rate Limiting by User
+```typescript
+const server = createMCPServer({
+  name: "rate_limited_api",
+  resources: [resource],
+  auth: { /* auth config */ },
+  
+  // Rate limiting per authenticated user
+  rateLimit: {
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    limit: (req) => {
+      // Higher limits for authenticated users
+      if (req.user) {
+        return req.user.scopes.includes("premium") ? 1000 : 500;
+      }
+      return 100; // Lower limit for anonymous users
+    },
+    keyGenerator: (req) => {
+      // Rate limit by user ID if authenticated, IP if not
+      return req.user ? req.user.id : req.ip;
+    },
+  },
+});
+```
+
+### Session Management
+```typescript
+// Track user sessions
+const activeSessions = new Map();
+
+const trackSession = (user: any) => {
+  const sessionId = generateSessionId();
+  activeSessions.set(sessionId, {
+    userId: user.id,
+    username: user.username,
+    loginTime: new Date(),
+    lastActivity: new Date(),
+    userAgent: req.headers['user-agent'],
+    ipAddress: req.ip,
+  });
+  
+  return sessionId;
+};
+
+// Update session activity
+const updateSessionActivity = (sessionId: string) => {
+  const session = activeSessions.get(sessionId);
+  if (session) {
+    session.lastActivity = new Date();
+  }
+};
+```
+
+## Environment Configuration
+
+### Production Security
+```bash
+# OAuth Configuration
+JWT_SECRET=very-long-secure-secret-key-at-least-32-characters
+SERVER_URL=https://your-production-domain.com
+JWT_EXPIRES_IN=24h
+
+# Rate Limiting
+RATE_LIMIT_WINDOW_MS=900000
+RATE_LIMIT_MAX_REQUESTS=100
+
+# Session Management
+SESSION_SECRET=another-secure-secret-for-sessions
+SESSION_MAX_AGE=86400000
+```
+
+### Development vs Production
+```typescript
+const authConfig = process.env.NODE_ENV === 'production' ? {
+  // Production: strict settings
+  jwtSecret: process.env.JWT_SECRET,
+  jwtExpiresIn: '1h',
+  requireHttps: true,
+  rateLimit: { windowMs: 15 * 60 * 1000, limit: 100 },
+} : {
+  // Development: relaxed settings
+  jwtSecret: 'dev-secret-key',
+  jwtExpiresIn: '24h',
+  requireHttps: false,
+  rateLimit: { windowMs: 15 * 60 * 1000, limit: 1000 },
+};
+```
+
+## Best Practices
+
+1. **Strong Secrets**: Use cryptographically secure random secrets for JWT
+2. **Token Expiration**: Set reasonable expiration times for JWT tokens
+3. **Scope Validation**: Always validate user permissions before operations
+4. **Rate Limiting**: Implement rate limiting to prevent abuse
+5. **HTTPS Only**: Use HTTPS in production for secure token transmission
+6. **Input Validation**: Validate all inputs, especially authentication data
+7. **Error Handling**: Don't leak sensitive information in error messages
+8. **Session Tracking**: Monitor and log authentication events
+9. **Regular Rotation**: Rotate secrets and tokens regularly
+10. **Audit Logging**: Log all authentication and authorization events
+description: Authentication patterns and security best practices for MCP servers
+globs: ["**/*.ts", "**/*.tsx", "**/*.js"]
+alwaysApply: false
+---

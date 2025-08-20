@@ -81,7 +81,7 @@ docker-compose logs -f
 # Stop
 docker-compose down
 ```
-description:
-globs:
+description: Quick start guide for Docker + OAuth + PostgreSQL template
+globs: ["**/*.ts", "**/*.tsx", "docker-compose.yml", "Dockerfile"]
 alwaysApply: false
 ---

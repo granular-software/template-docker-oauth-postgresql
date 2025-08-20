@@ -1,0 +1,81 @@
+# Building MCP Servers with mcpresso
+
+mcpresso is a TypeScript framework for building MCP servers. Define your data models with Zod schemas, and mcpresso automatically generates MCP tools, endpoints, and schema exposure.
+
+## Core Philosophy
+
+Instead of manually implementing MCP protocol, authentication, and resource management, you define:
+1. **Data models** with Zod schemas
+2. **Resource operations** with handlers
+3. **Relationships** between resources
+4. **Custom business logic** beyond CRUD
+
+mcpresso handles the rest: MCP protocol, authentication, validation, error handling, and tool generation.
+
+## Resource System
+
+Resources are the core concept - they represent data types your server manages:
+
+```typescript
+const userResource = createResource({
+  name: "user",                    // Resource name (creates MCP tools: get_user, list_users, etc.)
+  schema: UserSchema,              // Zod schema for validation and type safety
+  uri_template: "users/{id}",      // URI pattern for MCP resources
+  methods: {                       // Available operations
+    get: { handler: async ({ id }) => getUser(id) },
+    list: { handler: async () => listUsers() },
+    create: { handler: async (data) => createUser(data) },
+    update: { handler: async ({ id, ...data }) => updateUser(id, data) },
+    delete: { handler: async ({ id }) => deleteUser(id) },
+  },
+});
+```
+
+## What This Creates
+
+From a single resource definition, mcpresso automatically generates:
+
+- **MCP Tools**: `get_user`, `list_users`, `create_user`, `update_user`, `delete_user`
+- **Endpoints**: `GET /users/{id}`, `GET /users`, `POST /users`, `PUT /users/{id}`, `DELETE /users/{id}`
+- **Schema Exposure**: `schema://server_name/user` for AI agent understanding
+- **Type Safety**: Full TypeScript support with inferred types
+
+## Schema-First Development
+
+Use Zod to define your data models with validation:
+
+```typescript
+const UserSchema = z.object({
+  id: z.string().readonly(),           // Auto-generated, read-only
+  name: z.string().min(1, "Required"), // Required string with custom error
+  email: z.string().email(),           // Valid email format
+  age: z.number().min(0),              // Non-negative number
+  createdAt: z.date().readonly(),      // Auto-set, read-only
+  updatedAt: z.date().readonly(),      // Auto-updated, read-only
+});
+
+// Type inference
+type User = z.infer<typeof UserSchema>;
+```
+
+## MCP Standards Compliance
+
+mcpresso follows the latest Model Context Protocol specifications:
+- **Streamable HTTP Transport** with SSE support
+- **OAuth 2.1 Authorization** as specified in MCP 2025-06-18
+- **Tools and Resources** with proper MCP tool definition
+- **Protocol Compliance** for lifecycle, message format, and error handling
+
+## Quick Start
+
+```bash
+npx mcpresso init
+cd my-server
+npm run dev
+```
+
+Your MCP server is now running with full MCP protocol compliance.
+description: Core concepts and philosophy of building MCP servers with mcpresso
+globs: ["**/*.ts", "**/*.tsx"]
+alwaysApply: false
+---

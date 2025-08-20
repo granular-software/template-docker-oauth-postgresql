@@ -1,0 +1,225 @@
+# Resource Design Patterns for MCP Servers
+
+## Basic CRUD Resource
+The foundation of any MCP server - define your data model and get full CRUD operations:
+
+```typescript
+const noteResource = createResource({
+  name: "note",
+  schema: NoteSchema,
+  uri_template: "notes/{id}",
+  methods: {
+    create: { 
+      description: "Create a new note",
+      handler: async (data, user) => createNote(data, user) 
+    },
+    list: { 
+      description: "List all notes for the user",
+      handler: async (_, user) => listNotes(user) 
+    },
+    get: { 
+      description: "Get a note by ID",
+      handler: async ({ id }, user) => getNote(id, user) 
+    },
+    update: { 
+      description: "Update an existing note",
+      handler: async ({ id, ...data }, user) => updateNote(id, data, user) 
+    },
+    delete: { 
+      description: "Delete a note",
+      handler: async ({ id }, user) => deleteNote(id, user) 
+    },
+  },
+});
+```
+
+## Advanced Resource Patterns
+
+### Search and Filtering
+```typescript
+search: {
+  description: "Search notes by title, content, or tags with advanced filtering",
+  inputSchema: z.object({
+    query: z.string().describe("Search term for title or content"),
+    category: z.string().optional().describe("Filter by category"),
+    tags: z.array(z.string()).optional().describe("Filter by tags"),
+    status: z.enum(["draft", "published", "archived"]).optional(),
+    dateFrom: z.string().optional().describe("Filter from date (ISO string)"),
+    dateTo: z.string().optional().describe("Filter to date (ISO string)"),
+    limit: z.number().optional().default(20).describe("Maximum results"),
+    offset: z.number().optional().default(0).describe("Pagination offset"),
+  }),
+  handler: async ({ query, category, tags, status, dateFrom, dateTo, limit, offset }, user) => {
+    return searchNotes({ 
+      query, category, tags, status, dateFrom, dateTo, limit, offset, userId: user?.id 
+    });
+  },
+}
+```
+
+### Bulk Operations
+```typescript
+bulk_update: {
+  description: "Update multiple notes at once with transaction safety",
+  inputSchema: z.object({
+    ids: z.array(z.string()).describe("Array of note IDs to update"),
+    updates: z.object({
+      published: z.boolean().optional(),
+      category: z.string().optional(),
+      tags: z.array(z.string()).optional(),
+      status: z.enum(["draft", "published", "archived"]).optional(),
+    }).describe("Updates to apply to all notes"),
+  }),
+  handler: async ({ ids, updates }, user) => {
+    if (!user) throw new Error("Authentication required");
+    
+    // Validate all notes belong to user
+    const notes = await Promise.all(ids.map(id => getNote(id, user)));
+    const unauthorized = notes.filter(note => note.authorId !== user.id);
+    if (unauthorized.length > 0) {
+      throw new Error(`Access denied to ${unauthorized.length} notes`);
+    }
+    
+    // Perform bulk update in transaction
+    return await bulkUpdateNotes(ids, updates, user.id);
+  },
+}
+```
+
+### Complex Queries
+```typescript
+get_analytics: {
+  description: "Get comprehensive analytics for user's notes",
+  inputSchema: z.object({
+    timeRange: z.enum(["day", "week", "month", "year"]).default("month"),
+    groupBy: z.enum(["category", "tags", "status"]).optional(),
+  }),
+  handler: async ({ timeRange, groupBy }, user) => {
+    if (!user) throw new Error("Authentication required");
+    
+    const analytics = await getNoteAnalytics(user.id, timeRange, groupBy);
+    return {
+      totalNotes: analytics.total,
+      publishedNotes: analytics.published,
+      draftNotes: analytics.drafts,
+      categories: analytics.byCategory,
+      tags: analytics.byTags,
+      timeSeries: analytics.timeSeries,
+      insights: analytics.insights,
+    };
+  },
+}
+```
+
+## Relationships Between Resources
+
+Define connections to help AI agents understand your data structure:
+
+```typescript
+const noteResource = createResource({
+  name: "note",
+  schema: NoteSchema,
+  uri_template: "notes/{id}",
+  relations: {
+    authorId: { type: "user" },      // Note belongs to one user
+    tagIds: { type: "tag" },         // Note can have multiple tags
+    categoryId: { type: "category" }, // Note belongs to one category
+    parentNoteId: { type: "note" },   // Note can have a parent note (for replies)
+  },
+  methods: { /* ... */ },
+});
+```
+
+## Handler Patterns
+
+### Public vs Private Data
+```typescript
+// Public endpoint - no authentication required
+list_public: {
+  description: "List all published notes (public access)",
+  handler: async () => {
+    return await getPublishedNotes();
+  }
+},
+
+// Authenticated endpoint - requires user context
+list_my_notes: {
+  description: "List user's own notes (authenticated)",
+  handler: async (_, user) => {
+    if (!user) throw new Error("Authentication required");
+    return await getNotesByAuthor(user.id);
+  }
+},
+
+// Mixed access - public data + user's private data
+list: {
+  description: "List notes (public + user's private)",
+  handler: async (_, user) => {
+    if (!user) {
+      return await getPublishedNotes(); // Public only
+    }
+    return await getNotesForUser(user.id); // Public + private
+  }
+}
+```
+
+### Data Isolation and Security
+```typescript
+update: {
+  description: "Update a note with ownership validation",
+  handler: async ({ id, ...data }, user) => {
+    if (!user) throw new Error("Authentication required");
+    
+    const note = await getNote(id);
+    if (!note) throw new Error("Note not found");
+    
+    // Ensure user can only update their own notes
+    if (note.authorId !== user.id) {
+      throw new Error("Access denied - you can only update your own notes");
+    }
+    
+    // Validate data against schema
+    const validatedData = NoteUpdateSchema.parse(data);
+    
+    return await updateNote(id, validatedData, user.id);
+  },
+}
+```
+
+### Error Handling
+```typescript
+handler: async (data, user) => {
+  try {
+    // Your logic here
+    return await processData(data, user);
+  } catch (error) {
+    if (error.code === 'NOT_FOUND') {
+      throw new Error(`Resource not found: ${error.message}`);
+    }
+    if (error.code === 'PERMISSION_DENIED') {
+      throw new Error(`Access denied: ${error.message}`);
+    }
+    if (error.code === 'VALIDATION_ERROR') {
+      throw new Error(`Invalid data: ${error.message}`);
+    }
+    
+    // Log unexpected errors
+    console.error('Unexpected error:', error);
+    throw new Error('Internal server error');
+  }
+}
+```
+
+## Best Practices
+
+1. **Descriptive Names**: Use clear, descriptive names for resources and methods
+2. **Input Validation**: Always validate inputs with Zod schemas
+3. **Error Messages**: Provide clear, actionable error messages
+4. **Data Isolation**: Ensure users can only access their own data
+5. **Schema Exposure**: Use `exposeTypes: true` for better AI agent understanding
+6. **Method Descriptions**: Write clear descriptions for all custom methods
+7. **Type Safety**: Leverage TypeScript and Zod for compile-time safety
+description: Resource design patterns and best practices for MCP servers
+globs: ["**/*.ts", "**/*.tsx"]
+alwaysApply: false
+---
